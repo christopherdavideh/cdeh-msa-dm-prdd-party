@@ -3,6 +3,7 @@ package com.banking.cdeh_msa_dm_prdd_party.service.mapper;
 import com.banking.cdeh_msa_dm_prdd_party.domain.entity.Party;
 import com.banking.cdeh_msa_dm_prdd_party.service.dto.PartyDto;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 
 @Mapper(componentModel = "spring")
 public interface PartyMapper {

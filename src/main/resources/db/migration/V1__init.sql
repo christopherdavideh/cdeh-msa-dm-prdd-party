@@ -14,7 +14,8 @@ CREATE TABLE party (
 
 CREATE TABLE customer (
     customer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    party_id UUID NOT NULL REFERENCES party(party_id),
     password VARCHAR(255) NOT NULL,
     status BOOLEAN DEFAULT TRUE,
-    party_id UUID REFERENCES party(party_id) UNIQUE
+    CONSTRAINT uq_customer_party UNIQUE (party_id)
 );

@@ -21,4 +21,3 @@ public class PartyDto {
     private String phone;
 
 }
-
