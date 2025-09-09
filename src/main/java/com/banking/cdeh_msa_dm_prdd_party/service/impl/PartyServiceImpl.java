@@ -42,12 +42,39 @@ public class PartyServiceImpl implements PartyService {
     @Override
     public Mono<Party> updateParty(UUID partyId, Party party) {
         return partyRepository.findById(partyId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Party not found with id: " + partyId)))
+                .doFirst(() -> log.info(LogMessages.UPDATE_PARTY_REQUEST, partyId, party.getName(), party.getGender(), party.getAge(), party.getAddress(), party.getPhone()))
+                .doOnNext(existingParty -> log.info(LogMessages.PARTY_FOUND_FOR_UPDATE, existingParty))
+                .switchIfEmpty(Mono.defer(() -> {
+                    log.error(LogMessages.PARTY_UPDATE_NOT_FOUND, partyId);
+                    return Mono.error(new RuntimeException("Party not found with id: " + partyId));
+                }))
                 .flatMap(existing -> {
                     party.setPartyId(partyId);
-                    return partyRepository.save(party);
+                    // Si la identificación ha cambiado, verificar que no exista ya en otro registro
+                    if (!existing.getIdentification().equals(party.getIdentification())) {
+                        // Buscar si existe otro party con la misma identificación pero diferente ID
+                        return partyRepository.findAll()
+                                .filter(p -> p.getIdentification().equals(party.getIdentification()) && !p.getPartyId().equals(partyId))
+                                .hasElements()
+                                .doOnNext(exists -> log.info(LogMessages.PARTY_ID_DUPLICATE_CHECK, exists))
+                                .flatMap(exists -> {
+                                    if (exists) {
+                                        log.error(LogMessages.PARTY_ID_ALREADY_EXISTS, party.getIdentification());
+                                        return Mono.error(new RuntimeException("Ya existe otro registro con la identificación: " + party.getIdentification()));
+                                    } else {
+                                        return partyRepository.save(party)
+                                                .doOnSuccess(savedParty -> log.info(LogMessages.PARTY_UPDATED_SUCCESS, savedParty))
+                                                .doOnError(error -> log.error(LogMessages.UPDATE_PARTY_ERROR, error.getMessage()));
+                                    }
+                                });
+                    } else {
+                        return partyRepository.save(party)
+                                .doOnSuccess(savedParty -> log.info(LogMessages.PARTY_UPDATED_SUCCESS, savedParty))
+                                .doOnError(error -> log.error(LogMessages.UPDATE_PARTY_ERROR, error.getMessage()));
+                    }
                 })
-                .onErrorResume(e -> Mono.error(new RuntimeException("Error updating Party: " + e.getMessage())));
+                .doOnError(e -> log.error(LogMessages.UPDATE_PARTY_ERROR, e.getMessage()))
+                .onErrorResume(e -> Mono.error(new RuntimeException(LogMessages.ERROR_UPDATING_PARTY + e.getMessage())));
     }
 
 }
