@@ -2,6 +2,8 @@ package com.banking.cdeh_msa_dm_prdd_party.service.impl;
 
 import com.banking.cdeh_msa_dm_prdd_party.domain.entity.Customer;
 import com.banking.cdeh_msa_dm_prdd_party.domain.entity.Party;
+import com.banking.cdeh_msa_dm_prdd_party.exception.BadRequestException;
+import com.banking.cdeh_msa_dm_prdd_party.exception.ResourceNotFoundException;
 import com.banking.cdeh_msa_dm_prdd_party.repository.CustomerRepository;
 import com.banking.cdeh_msa_dm_prdd_party.repository.PartyRepository;
 import com.banking.cdeh_msa_dm_prdd_party.service.CustomerService;
@@ -43,7 +45,7 @@ public class CustomerServiceImpl implements CustomerService {
                 .doFirst(() -> log.info(LogMessages.CREATE_CUSTOMER_REQUEST, customerRequestDto))
                 .doOnSuccess(savedParty -> log.info(LogMessages.PARTY_SAVED_SUCCESS, savedParty))
                 .doOnError(error -> log.error(LogMessages.CREATE_PARTY_ERROR, error.getMessage()))
-                .onErrorResume(error -> Mono.error(new RuntimeException(LogMessages.ERROR_CREATING_PARTY + error.getMessage())))
+                .onErrorResume(error -> Mono.error(new BadRequestException(LogMessages.ERROR_CREATING_PARTY + error.getMessage())))
                 .flatMap(savedParty -> {
                     customerEntity.setPartyId(savedParty.getPartyId());
                     return customerRepository.save(customerEntity)
@@ -51,7 +53,7 @@ public class CustomerServiceImpl implements CustomerService {
                             .doOnError(error -> log.error(LogMessages.CREATE_CUSTOMER_ERROR, error.getMessage()))
                             .map(savedCustomer -> customerMapper.toCustomerResponseDto(savedParty, savedCustomer, partyMapper))
                             .doOnSuccess(dto -> log.info(LogMessages.CREATE_CUSTOMER_SUCCESS, dto))
-                            .onErrorResume(error -> Mono.error(new RuntimeException(LogMessages.ERROR_CREATING_CUSTOMER + error.getMessage())));
+                            .onErrorResume(error -> Mono.error(new BadRequestException(LogMessages.ERROR_CREATING_CUSTOMER + error.getMessage())));
                 });
     }
 
@@ -65,9 +67,13 @@ public class CustomerServiceImpl implements CustomerService {
                         .doOnError(error -> log.error(LogMessages.GET_PARTY_FOR_CUSTOMER_ERROR, error.getMessage()))
                         .map(party -> customerMapper.toCustomerResponseDto(party, customer, partyMapper))
                         .doOnSuccess(dto -> log.info(LogMessages.GET_ALL_CUSTOMERS_SUCCESS, dto))
-                        .onErrorResume(error -> Mono.error(new RuntimeException(LogMessages.ERROR_RETRIEVING_PARTY_FOR_CUSTOMER + error.getMessage()))))
+                        .onErrorResume(error -> Mono.error(error instanceof ResourceNotFoundException ?
+                                error :
+                                new BadRequestException(LogMessages.ERROR_RETRIEVING_PARTY_FOR_CUSTOMER + error.getMessage()))))
                 .doOnError(error -> log.error(LogMessages.GET_ALL_CUSTOMERS_ERROR, error.getMessage()))
-                .onErrorResume(error -> Flux.error(new RuntimeException(LogMessages.ERROR_RETRIEVING_CUSTOMERS + error.getMessage())));
+                .onErrorResume(error -> Flux.error(error instanceof ResourceNotFoundException || error instanceof BadRequestException ?
+                        error :
+                        new BadRequestException(LogMessages.ERROR_RETRIEVING_CUSTOMERS + error.getMessage())));
     }
 
     @Override
@@ -77,7 +83,7 @@ public class CustomerServiceImpl implements CustomerService {
                 .doOnNext(customer -> log.info(LogMessages.CUSTOMER_BY_ID_FOUND, customer))
                 .switchIfEmpty(Mono.defer(() -> {
                     log.error(LogMessages.CUSTOMER_BY_ID_NOT_FOUND, customerId);
-                    return Mono.error(new RuntimeException(LogMessages.CUSTOMER_NOT_FOUND + customerId));
+                    return Mono.error(new ResourceNotFoundException("Customer", "id", customerId));
                 }))
                 .flatMap(customer ->
                         partyService.getPartyById(customer.getPartyId())
@@ -85,9 +91,13 @@ public class CustomerServiceImpl implements CustomerService {
                                 .doOnError(error -> log.error(LogMessages.GET_PARTY_BY_ID_ERROR, error.getMessage()))
                                 .map(party -> customerMapper.toCustomerResponseDto(party, customer, partyMapper))
                                 .doOnSuccess(dto -> log.info(LogMessages.GET_CUSTOMER_BY_ID_SUCCESS, dto))
-                                .onErrorResume(error -> Mono.error(new RuntimeException(LogMessages.ERROR_RETRIEVING_PARTY_FOR_CUSTOMER + error.getMessage()))))
+                                .onErrorResume(error -> Mono.error(error instanceof ResourceNotFoundException ?
+                                        error :
+                                        new BadRequestException(LogMessages.ERROR_RETRIEVING_PARTY_FOR_CUSTOMER + error.getMessage()))))
                 .doOnError(error -> log.error(LogMessages.GET_CUSTOMER_BY_ID_ERROR, error.getMessage()))
-                .onErrorResume(error -> Mono.error(new RuntimeException(LogMessages.ERROR_RETRIEVING_CUSTOMER + error.getMessage())));
+                .onErrorResume(error -> Mono.error(error instanceof ResourceNotFoundException || error instanceof BadRequestException ?
+                        error :
+                        new BadRequestException(LogMessages.ERROR_RETRIEVING_CUSTOMER + error.getMessage())));
     }
 
     @Override
@@ -97,7 +107,7 @@ public class CustomerServiceImpl implements CustomerService {
                 .doOnNext(customer -> log.info(LogMessages.CUSTOMER_UPDATE_FOUND, customer))
                 .switchIfEmpty(Mono.defer(() -> {
                     log.error(LogMessages.CUSTOMER_UPDATE_NOT_FOUND, customerId);
-                    return Mono.error(new RuntimeException(LogMessages.CUSTOMER_NOT_FOUND + customerId));
+                    return Mono.error(new ResourceNotFoundException("Customer", "id", customerId));
                 }))
                 .flatMap(existingCustomer -> {
                     UUID partyId = existingCustomer.getPartyId();
@@ -130,21 +140,32 @@ public class CustomerServiceImpl implements CustomerService {
                                                                 .build();
                                                         return responseDto;
                                                     })
-                                                    .doOnSuccess(dto -> log.info(LogMessages.UPDATE_CUSTOMER_SUCCESS, dto));
-                                        });
-                            });
+                                                    .doOnSuccess(dto -> log.info(LogMessages.UPDATE_CUSTOMER_SUCCESS, dto))
+                                                    .onErrorResume(error -> Mono.error(new BadRequestException(LogMessages.ERROR_UPDATING_CUSTOMER + error.getMessage())));
+                                        })
+                                        .onErrorResume(error -> Mono.error(error instanceof ResourceNotFoundException || error instanceof BadRequestException ?
+                                                error :
+                                                new BadRequestException(LogMessages.ERROR_UPDATING_PARTY + error.getMessage())));
+                            })
+                            .onErrorResume(error -> Mono.error(error instanceof ResourceNotFoundException ?
+                                    error :
+                                    new BadRequestException(LogMessages.ERROR_RETRIEVING_PARTY_FOR_CUSTOMER + error.getMessage())));
                 })
                 .doOnError(error -> log.error(LogMessages.UPDATE_CUSTOMER_ERROR, error.getMessage()))
-                .onErrorResume(error -> Mono.error(new RuntimeException(LogMessages.ERROR_UPDATING_CUSTOMER + error.getMessage())));
+                .onErrorResume(error -> Mono.error(error instanceof ResourceNotFoundException || error instanceof BadRequestException ?
+                        error :
+                        new BadRequestException(LogMessages.ERROR_UPDATING_CUSTOMER + error.getMessage())));
     }
 
     @Override
     public Mono<Void> deleteCustomer(UUID customerId) {
-        return customerRepository.deactivateCustomerById(customerId)
+        return customerRepository.findById(customerId)
                 .doFirst(() -> log.info(LogMessages.DELETE_CUSTOMER_REQUEST, customerId))
-                .doOnSuccess(result -> log.info(LogMessages.DELETE_CUSTOMER_SUCCESS, customerId))
-                .doOnError(error -> log.error(LogMessages.DELETE_CUSTOMER_ERROR, error.getMessage()))
-                .onErrorResume(error -> Mono.error(new RuntimeException(LogMessages.ERROR_DELETING_CUSTOMER + error.getMessage())))
+                .switchIfEmpty(Mono.error(new ResourceNotFoundException("Customer", "id", customerId)))
+                .flatMap(customer -> customerRepository.deactivateCustomerById(customerId)
+                        .doOnSuccess(result -> log.info(LogMessages.DELETE_CUSTOMER_SUCCESS, customerId))
+                        .doOnError(error -> log.error(LogMessages.DELETE_CUSTOMER_ERROR, error.getMessage()))
+                        .onErrorResume(error -> Mono.error(new BadRequestException(LogMessages.ERROR_DELETING_CUSTOMER + error.getMessage()))))
                 .then();
     }
 }

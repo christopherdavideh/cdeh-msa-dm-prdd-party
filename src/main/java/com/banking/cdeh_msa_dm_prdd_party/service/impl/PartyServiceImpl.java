@@ -1,6 +1,8 @@
 package com.banking.cdeh_msa_dm_prdd_party.service.impl;
 
 import com.banking.cdeh_msa_dm_prdd_party.domain.entity.Party;
+import com.banking.cdeh_msa_dm_prdd_party.exception.BadRequestException;
+import com.banking.cdeh_msa_dm_prdd_party.exception.ResourceNotFoundException;
 import com.banking.cdeh_msa_dm_prdd_party.repository.PartyRepository;
 import com.banking.cdeh_msa_dm_prdd_party.service.PartyService;
 import com.banking.cdeh_msa_dm_prdd_party.util.LogMessages;
@@ -23,7 +25,7 @@ public class PartyServiceImpl implements PartyService {
                 .doFirst(() -> log.info(LogMessages.CREATE_PARTY_REQUEST, party))
                 .doOnSuccess(savedParty -> log.info(LogMessages.CREATE_PARTY_SUCCESS, savedParty))
                 .doOnError(error -> log.error(LogMessages.CREATE_PARTY_ERROR, error.getMessage()))
-                .onErrorResume(e -> Mono.error(new RuntimeException(LogMessages.ERROR_CREATING_PARTY + e.getMessage())));
+                .onErrorResume(e -> Mono.error(new BadRequestException(LogMessages.ERROR_CREATING_PARTY + e.getMessage())));
     }
 
     @Override
@@ -33,10 +35,12 @@ public class PartyServiceImpl implements PartyService {
                 .doOnSuccess(party -> log.info(LogMessages.GET_PARTY_BY_ID_SUCCESS, party))
                 .switchIfEmpty(Mono.defer(() -> {
                     log.error(LogMessages.PARTY_NOT_FOUND, partyId);
-                    return Mono.error(new RuntimeException("Party not found with id: " + partyId));
+                    return Mono.error(new ResourceNotFoundException("Party", "id", partyId));
                 }))
                 .doOnError(error -> log.error(LogMessages.GET_PARTY_RETRIEVE_ERROR, error.getMessage()))
-                .onErrorResume(e -> Mono.error(new RuntimeException("Error retrieving Party: " + e.getMessage())));
+                .onErrorResume(e -> e instanceof ResourceNotFoundException ?
+                        Mono.error(e) :
+                        Mono.error(new BadRequestException("Error retrieving Party: " + e.getMessage())));
     }
 
     @Override
@@ -46,13 +50,11 @@ public class PartyServiceImpl implements PartyService {
                 .doOnNext(existingParty -> log.info(LogMessages.PARTY_FOUND_FOR_UPDATE, existingParty))
                 .switchIfEmpty(Mono.defer(() -> {
                     log.error(LogMessages.PARTY_UPDATE_NOT_FOUND, partyId);
-                    return Mono.error(new RuntimeException("Party not found with id: " + partyId));
+                    return Mono.error(new ResourceNotFoundException("Party", "id", partyId));
                 }))
                 .flatMap(existing -> {
                     party.setPartyId(partyId);
-                    // Si la identificación ha cambiado, verificar que no exista ya en otro registro
                     if (!existing.getIdentification().equals(party.getIdentification())) {
-                        // Buscar si existe otro party con la misma identificación pero diferente ID
                         return partyRepository.findAll()
                                 .filter(p -> p.getIdentification().equals(party.getIdentification()) && !p.getPartyId().equals(partyId))
                                 .hasElements()
@@ -60,7 +62,7 @@ public class PartyServiceImpl implements PartyService {
                                 .flatMap(exists -> {
                                     if (exists) {
                                         log.error(LogMessages.PARTY_ID_ALREADY_EXISTS, party.getIdentification());
-                                        return Mono.error(new RuntimeException("Ya existe otro registro con la identificación: " + party.getIdentification()));
+                                        return Mono.error(new BadRequestException("Ya existe otro registro con la identificación: " + party.getIdentification()));
                                     } else {
                                         return partyRepository.save(party)
                                                 .doOnSuccess(savedParty -> log.info(LogMessages.PARTY_UPDATED_SUCCESS, savedParty))
@@ -74,7 +76,9 @@ public class PartyServiceImpl implements PartyService {
                     }
                 })
                 .doOnError(e -> log.error(LogMessages.UPDATE_PARTY_ERROR, e.getMessage()))
-                .onErrorResume(e -> Mono.error(new RuntimeException(LogMessages.ERROR_UPDATING_PARTY + e.getMessage())));
+                .onErrorResume(e -> e instanceof ResourceNotFoundException ?
+                        Mono.error(e) :
+                        Mono.error(new BadRequestException(LogMessages.ERROR_UPDATING_PARTY + e.getMessage())));
     }
 
 }
