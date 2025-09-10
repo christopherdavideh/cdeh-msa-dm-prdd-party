@@ -12,7 +12,7 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/clientes")
+@RequestMapping("/api/clientes")
 @RequiredArgsConstructor
 public class CustomerController {
     private final CustomerService customerService;
